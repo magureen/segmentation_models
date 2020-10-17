@@ -45,6 +45,31 @@ def Conv3x3BnReLU(filters, use_batchnorm, name=None):
     return wrapper
 
 
+def DecoderPixelShuffleX2Block(filters, stage, use_batchnorm=False):
+    transp_name = 'decoder_stage{}a_pixelshuffle'.format(stage)
+    bn_name = 'decoder_stage{}a_bn'.format(stage)
+    relu_name = 'decoder_stage{}a_relu'.format(stage)
+    conv_block_name = 'decoder_stage{}b'.format(stage)
+    concat_name = 'decoder_stage{}_concat'.format(stage)
+
+    concat_axis = bn_axis = 3 if backend.image_data_format() == 'channels_last' else 1
+
+    def layer(input_tensor, skip=None):
+        x = layers.Conv2D(filters*4, kernel_size=3, strides=1, padding='same')(input_tensor)
+        x = layers.Lambda(lambda i: tf.nn.depth_to_space(i, 2))(x)
+        
+        x = layers.Activation('relu', name=relu_name)(x)
+
+        if skip is not None:
+            x = layers.Concatenate(axis=concat_axis, name=concat_name)([x, skip])
+
+        x = Conv3x3BnReLU(filters, use_batchnorm, name=conv_block_name)(x)
+
+        return x
+
+    return layer
+
+
 def DecoderUpsamplingX2Block(filters, stage, use_batchnorm=False):
     up_name = 'decoder_stage{}_upsampling'.format(stage)
     conv1_name = 'decoder_stage{}a'.format(stage)
@@ -215,6 +240,8 @@ def Unet(
         decoder_block = DecoderUpsamplingX2Block
     elif decoder_block_type == 'transpose':
         decoder_block = DecoderTransposeX2Block
+    elif decoder_block_type == 'pixelshuffle':
+        decoder_block = DecoderPixelShuffleX2Block
     else:
         raise ValueError('Decoder block type should be in ("upsampling", "transpose"). '
                          'Got: {}'.format(decoder_block_type))
